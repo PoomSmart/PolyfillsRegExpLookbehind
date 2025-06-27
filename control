@@ -1,0 +1,11 @@
+Package: com.ps.polyfillsregexplookbehind
+Name: RegExp Lookbehind (Polyfills)
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Polyfills for RegExp lookbehind assertions in JavaScript (iOS < 16.4).
+Maintainer: PoomSmart
+Author: PoomSmart
+Section: Tweaks
+Depends: com.ps.polyfills (>= 2.2.4)
+Depiction: https://poomsmart.github.io/repo/depictions/polyfillsregexplookbehind.html
+SileoDepiction: https://poomsmart.github.io/repo/sileodepictions/polyfillsregexplookbehind.json

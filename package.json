@@ -1,0 +1,13 @@
+{
+  "name": "polyfills-regexp-lookbehind",
+  "version": "1.0.0",
+  "keywords": [],
+  "author": "PoomSmart",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/cli": "^7.27.2",
+    "@babel/core": "^7.27.7",
+    "@babel/preset-env": "^7.27.2",
+    "uglify-js": "^3.19.3"
+  }
+}
