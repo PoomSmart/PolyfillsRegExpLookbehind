@@ -90,6 +90,9 @@
     function emulateExec(str) {
         if (disablePatch) return nativeExec.call(this, str);
 
+        // Convert to string to match native RegExp behavior
+        str = String(str);
+
         const parsed = this.__lookbehind;
         if (!parsed) {
             const result = nativeExec.call(this, str);
@@ -165,6 +168,9 @@
     function emulateTest(str) {
         if (disablePatch) return nativeTest.call(this, str);
 
+        // Convert to string to match native RegExp behavior
+        str = String(str);
+
         const result = emulateExec.call(this, str);
         // emulateExec already updates RegExp static properties, so we just return the boolean
         return result !== null;
@@ -208,6 +214,9 @@
     RegExp.prototype.exec = function patchedExec(str) {
         if (disablePatch) return nativeExec.call(this, str);
 
+        // Convert to string to match native RegExp behavior
+        str = String(str);
+
         const patternStr = this.source;
         const flagsStr = this.flags;
 
@@ -232,6 +241,9 @@
 
     RegExp.prototype.test = function patchedTest(str) {
         if (disablePatch) return nativeTest.call(this, str);
+
+        // Convert to string to match native RegExp behavior
+        str = String(str);
 
         const patternStr = this.source;
         const flagsStr = this.flags;
