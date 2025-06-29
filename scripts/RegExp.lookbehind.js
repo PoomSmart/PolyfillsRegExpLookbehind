@@ -96,6 +96,65 @@
         return { type, pattern, raw, index: lookbehindStart, isComplex: false };
     }
 
+    function safeSetProperty(obj, key, value) {
+        try {
+            obj[key] = value;
+        } catch (e) {
+            // Ignore readonly property errors
+        }
+    }
+
+    function toString(value) {
+        return value + ''; // Convert to string without calling String()
+    }
+
+    function copyStaticProperties() {
+        // Copy static properties from native RegExp to polyfilled RegExp for compatibility
+        const staticProps = ['input', 'leftContext', 'rightContext', 'lastMatch', 'lastParen'];
+        staticProps.forEach(prop => {
+            if (prop in NativeRegExp) {
+                RegExp[prop] = NativeRegExp[prop];
+            }
+        });
+
+        // Copy numbered groups $1-$9
+        for (let i = 1; i <= 9; i++) {
+            const prop = `$${i}`;
+            if (prop in NativeRegExp) {
+                RegExp[prop] = NativeRegExp[prop];
+            }
+        }
+    }
+
+    function createPropertyGetter(propName, defaultValue = undefined) {
+        return function () {
+            if (this._regexp) {
+                return this._regexp[propName];
+            }
+            try {
+                return Object.getOwnPropertyDescriptor(NativeRegExp.prototype, propName).get.call(this);
+            } catch (e) {
+                // Handle cases where this is not a RegExp instance (e.g., RegExp.prototype)
+                return defaultValue;
+            }
+        };
+    }
+
+    function createPropertySetter(propName) {
+        return function (value) {
+            if (this._regexp) {
+                this._regexp[propName] = value;
+            } else {
+                try {
+                    Object.getOwnPropertyDescriptor(NativeRegExp.prototype, propName).set.call(this, value);
+                } catch (e) {
+                    // Handle cases where this is not a RegExp instance (e.g., RegExp.prototype)
+                    // Silently ignore
+                }
+            }
+        };
+    }
+
     function updateRegExpStatics(match, input) {
         const left = input.slice(0, match.index);
         const right = input.slice(match.index + match[0].length);
@@ -109,40 +168,22 @@
             lastParen: match[match.length - 1] || ''
         };
 
-        // Safely set properties on our polyfilled RegExp
-        for (const [key, value] of Object.entries(props)) {
-            try {
-                globalThis.RegExp[key] = value;
-            } catch (e) {
-                // Ignore readonly property errors
-            }
-        }
-
-        // Also set on native RegExp if it's different (for websites checking NativeRegExp.$1)
+        const targets = [globalThis.RegExp];
         if (NativeRegExp !== globalThis.RegExp) {
+            targets.push(NativeRegExp);
+        }
+
+        // Set named properties on all targets
+        for (const target of targets) {
             for (const [key, value] of Object.entries(props)) {
-                try {
-                    NativeRegExp[key] = value;
-                } catch (e) {
-                    // Ignore readonly property errors
-                }
+                safeSetProperty(target, key, value);
             }
         }
 
-        // Set numbered groups on both
-        for (let i = 1; i <= 9; i++) {
-            const value = match[i] || '';
-            try {
-                globalThis.RegExp[`$${i}`] = value;
-            } catch (e) {
-                // Ignore readonly property errors
-            }
-            if (NativeRegExp !== globalThis.RegExp) {
-                try {
-                    NativeRegExp[`$${i}`] = value;
-                } catch (e) {
-                    // Ignore readonly property errors
-                }
+        // Set numbered groups $1-$9 on all targets
+        for (const target of targets) {
+            for (let i = 1; i <= 9; i++) {
+                safeSetProperty(target, `$${i}`, match[i] || '');
             }
         }
     }
@@ -155,8 +196,8 @@
                 source = pattern.source;
                 inputFlags = flags !== undefined ? flags : pattern.flags;
             } else {
-                source = pattern + ''; // Convert to string without calling String()
-                inputFlags = (flags || '') + ''; // Convert to string
+                source = toString(pattern);
+                inputFlags = toString(flags || '');
             }
 
             const lookbehindInfo = extractLookbehind(source);
@@ -218,73 +259,57 @@
     RegExp.prototype = Object.create(NativeRegExp.prototype);
 
     // Define properties that delegate to the internal regexp, but only for polyfilled instances
-    Object.defineProperty(RegExp.prototype, 'global', {
-        enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.global : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'global').get.call(this);
-        }
+    const regexpProperties = [
+        { name: 'global', defaultValue: undefined },
+        { name: 'ignoreCase', defaultValue: undefined },
+        { name: 'multiline', defaultValue: undefined },
+        { name: 'dotAll', defaultValue: undefined },
+        { name: 'unicode', defaultValue: undefined },
+        { name: 'sticky', defaultValue: undefined }
+    ];
+
+    regexpProperties.forEach(({ name, defaultValue }) => {
+        Object.defineProperty(RegExp.prototype, name, {
+            enumerable: true,
+            get: createPropertyGetter(name, defaultValue)
+        });
     });
 
-    Object.defineProperty(RegExp.prototype, 'ignoreCase', {
-        enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.ignoreCase : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'ignoreCase').get.call(this);
-        }
-    });
-
-    Object.defineProperty(RegExp.prototype, 'multiline', {
-        enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.multiline : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'multiline').get.call(this);
-        }
-    });
-
-    Object.defineProperty(RegExp.prototype, 'dotAll', {
-        enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.dotAll : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'dotAll').get.call(this);
-        }
-    });
-
-    Object.defineProperty(RegExp.prototype, 'unicode', {
-        enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.unicode : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'unicode').get.call(this);
-        }
-    });
-
-    Object.defineProperty(RegExp.prototype, 'sticky', {
-        enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.sticky : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'sticky').get.call(this);
-        }
-    });
-
+    // Special handling for lastIndex (has both getter and setter)
     Object.defineProperty(RegExp.prototype, 'lastIndex', {
         enumerable: true,
-        get: function () {
-            return this._regexp ? this._regexp.lastIndex : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'lastIndex').get.call(this);
-        },
-        set: function (value) {
-            if (this._regexp) {
-                this._regexp.lastIndex = value;
-            } else {
-                Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'lastIndex').set.call(this, value);
-            }
-        }
+        get: createPropertyGetter('lastIndex', 0),
+        set: createPropertySetter('lastIndex')
     });
 
+    // Special handling for flags and source (custom logic)
     Object.defineProperty(RegExp.prototype, 'flags', {
         enumerable: true,
         get: function () {
-            return this._flags || Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'flags').get.call(this);
+            if (this._flags) {
+                return this._flags;
+            }
+            try {
+                return Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'flags').get.call(this);
+            } catch (e) {
+                // Handle cases where this is not a RegExp instance (e.g., RegExp.prototype)
+                return '';
+            }
         }
     });
 
     Object.defineProperty(RegExp.prototype, 'source', {
         enumerable: true,
         get: function () {
-            return this._originalSource || Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'source').get.call(this);
+            if (this._originalSource) {
+                return this._originalSource;
+            }
+            try {
+                return Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'source').get.call(this);
+            } catch (e) {
+                // Handle cases where this is not a RegExp instance (e.g., RegExp.prototype)
+                return '';
+            }
         }
     });
 
@@ -293,7 +318,7 @@
     };
 
     RegExp.prototype.exec = function (str) {
-        str = str + ''; // Convert to string
+        str = toString(str);
 
         // Check if this is a polyfilled RegExp instance or a native one
         if (!this._regexp) {
@@ -372,27 +397,14 @@
         NativeRegExp.prototype.exec = function (str) {
             const result = originalNativeExec.call(this, str);
             if (result) {
-                updateRegExpStatics(result, str + '');
+                updateRegExpStatics(result, toString(str));
             }
             return result;
         };
     }
 
     // Copy static properties from native RegExp to polyfilled RegExp for compatibility
-    const staticProps = ['input', 'leftContext', 'rightContext', 'lastMatch', 'lastParen'];
-    staticProps.forEach(prop => {
-        if (prop in NativeRegExp) {
-            RegExp[prop] = NativeRegExp[prop];
-        }
-    });
-
-    // Copy numbered groups $1-$9
-    for (let i = 1; i <= 9; i++) {
-        const prop = `$${i}`;
-        if (prop in NativeRegExp) {
-            RegExp[prop] = NativeRegExp[prop];
-        }
-    }
+    copyStaticProperties();
 
     // --- Patch string methods ---
 
@@ -404,17 +416,16 @@
     };
 
     String.prototype.replace = function (search, replacement) {
-        const str = this + ''; // Convert to string
+        const str = toString(this);
         if (search instanceof RegExp && search._lookbehindInfo) {
             const re = search.global ? search : new RegExp(search.source, search.flags + 'g');
             let result = '', lastIndex = 0, match;
 
             while ((match = re.exec(str))) {
-                const i = match.index;
-                result += str.slice(lastIndex, i);
-                result += typeof replacement === 'function'
-                    ? replacement(...match, i, str)
-                    : original.replace.call(replacement + '', /\$&/g, match[0]);
+                const i = match.index;            result += str.slice(lastIndex, i);
+            result += typeof replacement === 'function'
+                ? replacement(...match, i, str)
+                : original.replace.call(toString(replacement), /\$&/g, match[0]);
                 lastIndex = i + match[0].length;
                 if (match[0] === '') re.lastIndex++;
                 if (!search.global) break;
@@ -427,7 +438,7 @@
     };
 
     String.prototype.match = function (pattern) {
-        const str = this + ''; // Convert to string
+        const str = toString(this);
         if (!(pattern instanceof RegExp)) pattern = new RegExp(pattern);
         if (pattern.global) {
             const results = [];
@@ -442,14 +453,14 @@
     };
 
     String.prototype.search = function (pattern) {
-        const str = this + ''; // Convert to string
+        const str = toString(this);
         if (!(pattern instanceof RegExp)) pattern = new RegExp(pattern);
         const m = pattern.exec(str);
         return m ? m.index : -1;
     };
 
     String.prototype.split = function (separator, limit) {
-        const str = this + ''; // Convert to string
+        const str = toString(this);
         if (!(separator instanceof RegExp)) return original.split.call(str, separator, limit);
 
         const re = separator.global ? separator : new RegExp(separator.source, separator.flags + 'g');
