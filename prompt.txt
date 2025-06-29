@@ -1,0 +1,13 @@
+Write a JavaScript polyfill for RegExp lookbehind.
+
+Requirements:
+1. The polyfill should support basic lookbehind syntax.
+2. It should handle both positive and negative lookbehinds.
+3. It must polyfill the RegExp constructor, `RegExp.prototype.test` and `RegExp.prototype.exec` methods to support lookbehinds.
+4. It must polyfill the `String.prototype.replace`, `String.prototype.match`, `String.prototype.search` and `String.prototype.split` methods to support lookbehinds.
+5. It must ensure that static properties like `RegExp.$1`, `RegExp.$2`, `RegExp.$&`, `RegExp.$'`, `RegExp.$+` are correctly set even if the regexp is not a lookbehind.
+6. It must throw an exception when `globalThis.__isTest` is true and the lookbehind is too complex to handle in your polyfill.
+7. It must wrap the relevant parameters with `String()` to ensure it is a string.
+8. It must ensure that there is no unused functions or variables in the code.
+9. It must not cause infinite recursion, loop or stack overflow errors due to (eventually) calling itself.
+10. It must not hallucinate non-existing methods or properties.

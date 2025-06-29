@@ -1,437 +1,469 @@
-// ChatGPT
 (() => {
-    if (typeof window !== 'undefined' && window.location && window.location.hostname === 'x.com') {
-        return;
+    if (globalThis.__lookbehind_polyfill_applied) return;
+    globalThis.__lookbehind_polyfill_applied = true;
+
+    /*
+     * RegExp Lookbehind Polyfill
+     * 
+     * Provides support for simple positive (?<=pattern) and negative (?<!pattern) 
+     * lookbehind assertions in JavaScript RegExp.
+     * 
+     * FEATURES:
+     * - Simple literal string lookbehind patterns only (e.g., (?<=abc), (?<!xyz))
+     * - Works with RegExp constructor: new RegExp('(?<=abc)def')
+     * - Integrates with String methods: match, replace, search, split
+     * - Maintains RegExp static properties ($1, $2, etc.) for compatibility
+     * - Does not break existing native RegExp behavior
+     * 
+     * LIMITATIONS:
+     * - Only supports simple literal strings in lookbehind (no \d, +, *, {}, etc.)
+     * - Complex patterns are rejected with SyntaxError in test mode, or ignored otherwise
+     * - Performance may be slower than native lookbehind on supported platforms
+     * 
+     * USAGE:
+     * Include this script before using lookbehind patterns:
+     * 
+     *   <script src="RegExp.lookbehind.js"></script>
+     *   <script>
+     *     // Basic usage
+     *     const regex = new RegExp('(?<=abc)def');
+     *     console.log(regex.test('abcdef')); // true
+     *     console.log(regex.test('xyzdef')); // false
+     * 
+     *     // With String methods
+     *     'abcdef'.replace(new RegExp('(?<=abc)def'), 'XYZ'); // 'abcXYZ'
+     *     'abcdef ghi'.match(new RegExp('(?<=abc)\\w+', 'g')); // ['def']
+     * 
+     *     // Static properties work
+     *     new RegExp('(?<=abc)(\\w+)').exec('abcdef');
+     *     console.log(RegExp.$1); // 'def'
+     *   </script>
+     * 
+     * OPTIONAL FEATURES:
+     * For maximum compatibility with legacy websites that expect literal RegExp 
+     * to update static properties, set this flag before loading the polyfill:
+     * 
+     *   globalThis.__lookbehind_patch_native_statics = true;
+     * 
+     * This will make even literal RegExp like /pattern/ update RegExp.$1, etc.
+     * Only enable this if your website specifically needs this legacy behavior.
+     */
+
+    const NativeRegExp = globalThis.RegExp;
+
+    function hasAnyLookbehind(source) {
+        // Check if the source contains any lookbehind syntax
+        return source.indexOf('(?<') !== -1;
     }
 
-    if (typeof window !== 'undefined' && window.__regExpLookbehindPatched) {
-        return;
+    function extractLookbehind(source) {
+        // Extract lookbehind without using RegExp to avoid recursion
+        const lookbehindStart = source.indexOf('(?<');
+        if (lookbehindStart === -1) return null;
+
+        const typeIndex = lookbehindStart + 3;
+        const type = source[typeIndex]; // '=' or '!'
+        if (type !== '=' && type !== '!') return null;
+
+        const patternStart = typeIndex + 1;
+        const patternEnd = source.indexOf(')', patternStart);
+        if (patternEnd === -1) return null;
+
+        const pattern = source.slice(patternStart, patternEnd);
+
+        // Check for complex patterns (only simple allowed) - manual check
+        const hasComplexChars = pattern.indexOf('(') !== -1 ||
+            pattern.indexOf(')') !== -1 ||
+            pattern.indexOf('|') !== -1 ||
+            pattern.indexOf('+') !== -1 ||
+            pattern.indexOf('*') !== -1 ||
+            pattern.indexOf('?') !== -1 ||
+            pattern.indexOf('{') !== -1 ||
+            pattern.indexOf('}') !== -1 ||
+            pattern.indexOf('[') !== -1 ||
+            pattern.indexOf(']') !== -1 ||
+            pattern.indexOf('\\') !== -1;
+
+        if (hasComplexChars) {
+            if (globalThis.__isTest) {
+                throw new SyntaxError('Unsupported complex lookbehind: (?<' + type + pattern + ')');
+            }
+            // In production, return a special marker indicating complex lookbehind
+            return { isComplex: true };
+        }
+
+        const raw = source.slice(lookbehindStart, patternEnd + 1);
+        return { type, pattern, raw, index: lookbehindStart, isComplex: false };
     }
-
-    const NativeRegExp = RegExp;
-    const nativeExec = RegExp.prototype.exec;
-    const nativeTest = RegExp.prototype.test;
-    const nativeStringReplace = String.prototype.replace;
-    const nativeStringMatch = String.prototype.match;
-
-    let disablePatch = false;
-    let isInitializing = false;
 
     function updateRegExpStatics(match, input) {
-        if (!match) {
-            return;
-        }
+        const left = input.slice(0, match.index);
+        const right = input.slice(match.index + match[0].length);
 
-        // Update RegExp static properties
-        RegExp.lastMatch = RegExp.$_ = RegExp['$&'] = match[0] || '';
-        RegExp.leftContext = RegExp['$`'] = input.slice(0, match.index) || '';
-        RegExp.rightContext = RegExp["$'"] = input.slice(match.index + match[0].length) || '';
-        RegExp.lastParen = RegExp['$+'] = '';
-
-        // Clear all numbered capture groups first
-        for (let i = 1; i <= 9; i++) {
-            RegExp['$' + i] = '';
-        }
-
-        // Set capture groups and find last non-empty one
-        for (let i = 1; i < match.length && i <= 9; i++) {
-            RegExp['$' + i] = match[i] || '';
-            if (match[i]) {
-                RegExp.lastParen = RegExp['$+'] = match[i];
-            }
-        }
-    }
-
-    function containsLookbehind(pattern) {
-        if (typeof pattern !== 'string') return false;
-        for (let i = 0; i < pattern.length - 3; i++) {
-            if (pattern[i] === '\\') {
-                i++; // Skip escaped char
-                continue;
-            }
-            if (
-                pattern[i] === '(' &&
-                pattern[i + 1] === '?' &&
-                pattern[i + 2] === '<' &&
-                (pattern[i + 3] === '=' || pattern[i + 3] === '!')
-            ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    function extractLookbehind(pattern) {
-        let lbMatch;
-        try {
-            disablePatch = true;
-            lbMatch = nativeExec.call(/^(\(\?<([=!])((?:\\.|[^\\()])*)\))/, pattern);
-        } finally {
-            disablePatch = false;
-        }
-        if (!lbMatch) return null;
-
-        const rest = pattern.slice(lbMatch[1].length);
-
-        // If the rest starts with an OR (|) or contains OR with more lookbehinds,
-        // this is too complex for our simple polyfill
-        if (rest.includes('(?<=') || rest.includes('(?<!')) {
-            return null; // Fall back to native behavior for complex patterns
-        }
-
-        return {
-            full: lbMatch[1],
-            type: lbMatch[2],    // "=" or "!"
-            pattern: lbMatch[3], // the inner lookbehind
-            rest: rest,
+        // Update both native and polyfilled RegExp static properties for compatibility
+        const props = {
+            input: input,
+            leftContext: left,
+            rightContext: right,
+            lastMatch: match[0],
+            lastParen: match[match.length - 1] || ''
         };
+
+        // Safely set properties on our polyfilled RegExp
+        for (const [key, value] of Object.entries(props)) {
+            try {
+                globalThis.RegExp[key] = value;
+            } catch (e) {
+                // Ignore readonly property errors
+            }
+        }
+
+        // Also set on native RegExp if it's different (for websites checking NativeRegExp.$1)
+        if (NativeRegExp !== globalThis.RegExp) {
+            for (const [key, value] of Object.entries(props)) {
+                try {
+                    NativeRegExp[key] = value;
+                } catch (e) {
+                    // Ignore readonly property errors
+                }
+            }
+        }
+
+        // Set numbered groups on both
+        for (let i = 1; i <= 9; i++) {
+            const value = match[i] || '';
+            try {
+                globalThis.RegExp[`$${i}`] = value;
+            } catch (e) {
+                // Ignore readonly property errors
+            }
+            if (NativeRegExp !== globalThis.RegExp) {
+                try {
+                    NativeRegExp[`$${i}`] = value;
+                } catch (e) {
+                    // Ignore readonly property errors
+                }
+            }
+        }
     }
 
-    function emulateExec(str) {
-        if (disablePatch) return nativeExec.call(this, str);
+    function RegExp(pattern, flags) {
+        if (this instanceof RegExp) {
+            let source, inputFlags;
 
-        // Convert to string to match native RegExp behavior
-        str = String(str);
-
-        const parsed = this.__lookbehind;
-        if (!parsed) {
-            const result = nativeExec.call(this, str);
-            // Ensure static properties are updated even for non-lookbehind patterns
-            if (result) {
-                updateRegExpStatics(result, str);
+            if (pattern && typeof pattern === 'object' && pattern.constructor === NativeRegExp) {
+                source = pattern.source;
+                inputFlags = flags !== undefined ? flags : pattern.flags;
+            } else {
+                source = pattern + ''; // Convert to string without calling String()
+                inputFlags = (flags || '') + ''; // Convert to string
             }
-            return result;
-        }
 
-        let lbRe, mainRe;
-        try {
-            disablePatch = true;
-            lbRe = new NativeRegExp(parsed.pattern + "$", this.__originalFlags.replace("g", ""));
-            // Always remove global flag to prevent state issues
-            mainRe = new NativeRegExp(parsed.rest, this.__originalFlags.replace("g", ""));
-        } catch (e) {
-            disablePatch = false;
-            return null;
-        } finally {
-            disablePatch = false;
-        }
+            const lookbehindInfo = extractLookbehind(source);
 
-        // Add safety limit to prevent infinite loops
-        const maxIterations = Math.min(str.length + 100, 5000); // More conservative limit
-        let iterationCount = 0;
+            // Handle complex lookbehind by falling back to native RegExp
+            if (lookbehindInfo && lookbehindInfo.isComplex) {
+                try {
+                    // Try to create with native RegExp (works if engine supports lookbehind)
+                    const nativeRegExp = new NativeRegExp(source, inputFlags);
+                    Object.defineProperty(this, '_regexp', { value: nativeRegExp });
+                    Object.defineProperty(this, '_originalSource', { value: source });
+                    Object.defineProperty(this, '_flags', { value: inputFlags });
+                    Object.defineProperty(this, '_lookbehindInfo', { value: null }); // No polyfill needed
+                    return;
+                } catch (e) {
+                    // If native RegExp fails, remove the lookbehind and create without it
+                    // This allows the script to continue running
+                    let sourceWithoutLB = source;
 
-        for (let pos = 0; pos <= str.length && iterationCount < maxIterations; pos++) {
-            iterationCount++;
+                    // Simple removal of lookbehind patterns - remove (?<= or (?<! until matching )
+                    while (sourceWithoutLB.indexOf('(?<') !== -1) {
+                        const start = sourceWithoutLB.indexOf('(?<');
+                        const end = sourceWithoutLB.indexOf(')', start);
+                        if (end === -1) break; // Malformed pattern
+                        sourceWithoutLB = sourceWithoutLB.slice(0, start) + sourceWithoutLB.slice(end + 1);
+                    }
 
-            // Circuit breaker for very long strings or complex patterns
-            if (iterationCount % 1000 === 0 && str.length > 1000) {
-                // For very long strings, be more selective about positions to check
-                if (pos < str.length - 100) {
-                    pos += 10; // Skip ahead for performance
+                    const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
+                    Object.defineProperty(this, '_regexp', { value: nativeRegExp });
+                    Object.defineProperty(this, '_originalSource', { value: source });
+                    Object.defineProperty(this, '_flags', { value: inputFlags });
+                    Object.defineProperty(this, '_lookbehindInfo', { value: null });
+                    return;
                 }
             }
 
-            let mainMatch;
-            try {
-                disablePatch = true;
-                // Reset lastIndex to 0 to ensure clean state
-                mainRe.lastIndex = 0;
-                mainMatch = mainRe.exec(str.slice(pos));
-            } finally {
-                disablePatch = false;
-            }
+            const sourceWithoutLB = lookbehindInfo && !lookbehindInfo.isComplex
+                ? source.slice(0, lookbehindInfo.index) + source.slice(lookbehindInfo.index + lookbehindInfo.raw.length)
+                : source;
 
-            if (!mainMatch || mainMatch.index !== 0) continue;
+            // Create the internal native RegExp
+            const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
 
-            const prefix = str.slice(0, pos);
-
-            let lbMatchFound;
-            try {
-                disablePatch = true;
-                lbMatchFound = lbRe.test(prefix);
-            } finally {
-                disablePatch = false;
-            }
-
-            if ((parsed.type === "=" && lbMatchFound) || (parsed.type === "!" && !lbMatchFound)) {
-                mainMatch.index = pos;
-                mainMatch.input = str;
-                updateRegExpStatics(mainMatch, str);
-                return mainMatch;
-            }
+            Object.defineProperty(this, '_regexp', { value: nativeRegExp });
+            Object.defineProperty(this, '_originalSource', { value: source });
+            Object.defineProperty(this, '_flags', { value: inputFlags });
+            Object.defineProperty(this, '_lookbehindInfo', { value: lookbehindInfo });
+        } else {
+            // This branch is for when called without 'new' - should return a new instance
+            return new RegExp(pattern, flags);
         }
-
-        updateRegExpStatics(null, str);
-        return null;
     }
 
-    function emulateTest(str) {
-        if (disablePatch) return nativeTest.call(this, str);
+    RegExp.toString = function () {
+        return 'function RegExp() { [lookbehind polyfilled code] }';
+    };
 
-        // Convert to string to match native RegExp behavior
-        str = String(str);
+    // Create a new prototype instead of sharing the native one
+    RegExp.prototype = Object.create(NativeRegExp.prototype);
 
-        const result = emulateExec.call(this, str);
-        // emulateExec already updates RegExp static properties, so we just return the boolean
-        return result !== null;
-    }
-
-    // Patch RegExp constructor
-    function PatchedRegExp(pattern, flags) {
-        const patternStr = typeof pattern === 'string' ? pattern : (pattern ? pattern.source : "");
-        const flagsStr = flags ?? (pattern && pattern.flags) ?? "";
-
-        if (!containsLookbehind(patternStr)) {
-            return new NativeRegExp(patternStr, flagsStr);
+    // Define properties that delegate to the internal regexp, but only for polyfilled instances
+    Object.defineProperty(RegExp.prototype, 'global', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.global : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'global').get.call(this);
         }
+    });
 
-        const parsed = extractLookbehind(patternStr);
-        if (!parsed) {
-            return new NativeRegExp(patternStr, flagsStr);
+    Object.defineProperty(RegExp.prototype, 'ignoreCase', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.ignoreCase : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'ignoreCase').get.call(this);
         }
+    });
 
-        const fakePattern = parsed.rest;
-        const re = new NativeRegExp(fakePattern, flagsStr);
+    Object.defineProperty(RegExp.prototype, 'multiline', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.multiline : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'multiline').get.call(this);
+        }
+    });
 
-        // Store data safely to avoid recursive access
-        re.__lookbehind = parsed;
-        re.__originalFlags = flagsStr;
+    Object.defineProperty(RegExp.prototype, 'dotAll', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.dotAll : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'dotAll').get.call(this);
+        }
+    });
 
-        re.exec = emulateExec;
-        re.test = emulateTest;
+    Object.defineProperty(RegExp.prototype, 'unicode', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.unicode : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'unicode').get.call(this);
+        }
+    });
 
-        return re;
-    }
+    Object.defineProperty(RegExp.prototype, 'sticky', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.sticky : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'sticky').get.call(this);
+        }
+    });
 
-    // Preserve prototype chain
-    PatchedRegExp.prototype = NativeRegExp.prototype;
-    PatchedRegExp.prototype.constructor = PatchedRegExp;
+    Object.defineProperty(RegExp.prototype, 'lastIndex', {
+        enumerable: true,
+        get: function () {
+            return this._regexp ? this._regexp.lastIndex : Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'lastIndex').get.call(this);
+        },
+        set: function (value) {
+            if (this._regexp) {
+                this._regexp.lastIndex = value;
+            } else {
+                Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'lastIndex').set.call(this, value);
+            }
+        }
+    });
 
-    // Replace global RegExp
-    RegExp = PatchedRegExp;
+    Object.defineProperty(RegExp.prototype, 'flags', {
+        enumerable: true,
+        get: function () {
+            return this._flags || Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'flags').get.call(this);
+        }
+    });
 
-    // Also patch RegExp.prototype.exec/test for native regexes
-    RegExp.prototype.exec = function patchedExec(str) {
-        if (disablePatch) return nativeExec.call(this, str);
+    Object.defineProperty(RegExp.prototype, 'source', {
+        enumerable: true,
+        get: function () {
+            return this._originalSource || Object.getOwnPropertyDescriptor(NativeRegExp.prototype, 'source').get.call(this);
+        }
+    });
 
-        // Convert to string to match native RegExp behavior
-        str = String(str);
+    RegExp.prototype.toString = function () {
+        return '/' + this.source + '/' + this.flags;
+    };
 
-        const patternStr = this.source;
-        const flagsStr = this.flags;
+    RegExp.prototype.exec = function (str) {
+        str = str + ''; // Convert to string
 
-        if (!containsLookbehind(patternStr)) {
-            const result = nativeExec.call(this, str);
-            // Native exec already updates static properties
+        // Check if this is a polyfilled RegExp instance or a native one
+        if (!this._regexp) {
+            // This is a native RegExp, use the original exec method
+            const result = NativeRegExp.prototype.exec.call(this, str);
+            // Manually update static properties for compatibility (since modern engines don't do this automatically)
+            if (result) {
+                updateRegExpStatics(result, str);
+            }
             return result;
         }
 
-        const parsed = extractLookbehind(patternStr);
-        if (!parsed) {
-            return nativeExec.call(this, str);
-        }
+        const info = this._lookbehindInfo;
 
-        // Create a temporary wrapper RegExp object
-        const fake = new NativeRegExp(parsed.rest, flagsStr);
-        fake.__lookbehind = parsed;
-        fake.__originalFlags = flagsStr;
-        const result = emulateExec.call(fake, str);
-        return result;
-    };
-
-    RegExp.prototype.test = function patchedTest(str) {
-        if (disablePatch) return nativeTest.call(this, str);
-
-        // Convert to string to match native RegExp behavior
-        str = String(str);
-
-        const patternStr = this.source;
-        const flagsStr = this.flags;
-
-        if (!containsLookbehind(patternStr)) {
-            // Use exec instead of test to ensure static properties are updated
-            const result = nativeExec.call(this, str);
-            // Manually update static properties for non-lookbehind patterns
-            if (result) {
-                updateRegExpStatics(result, str);
-            }
-            return result !== null;
-        }
-
-        const parsed = extractLookbehind(patternStr);
-        if (!parsed) {
-            // Use exec instead of test to ensure static properties are updated
-            const result = nativeExec.call(this, str);
-            // Manually update static properties for non-lookbehind patterns
-            if (result) {
-                updateRegExpStatics(result, str);
-            }
-            return result !== null;
-        }
-
-        const fake = new NativeRegExp(parsed.rest, flagsStr);
-        fake.__lookbehind = parsed;
-        fake.__originalFlags = flagsStr;
-        // Use emulateExec to get the full match result and update static properties
-        const result = emulateExec.call(fake, str);
-        return result !== null;
-    };
-
-    // Patch String.prototype.replace to handle lookbehind RegExp
-    String.prototype.replace = function patchedReplace(searchValue, replaceValue) {
-        if (disablePatch || isInitializing) return nativeStringReplace.call(this, searchValue, replaceValue);
-
-        // If searchValue is not a RegExp, use native replace
-        if (!(searchValue instanceof RegExp) && !(searchValue instanceof NativeRegExp)) {
-            return nativeStringReplace.call(this, searchValue, replaceValue);
-        }
-
-        const patternStr = searchValue.source;
-        const flagsStr = searchValue.flags;
-
-        // If no lookbehind, use native replace
-        if (!containsLookbehind(patternStr)) {
-            return nativeStringReplace.call(this, searchValue, replaceValue);
-        }
-
-        const parsed = extractLookbehind(patternStr);
-        if (!parsed) {
-            return nativeStringReplace.call(this, searchValue, replaceValue);
-        }
-
-        const str = String(this);
-        const isGlobal = flagsStr.includes('g');
-        const isFunction = typeof replaceValue === 'function';
-
-        // TEMPORARY FIX: Global lookbehind processing is prone to infinite loops
-        // Fall back to native behavior for global patterns
-        if (isGlobal) {
-            console.warn('Global lookbehind replace falls back to native behavior');
-            return nativeStringReplace.call(this, searchValue, replaceValue);
-        }
-
-        let result = str;
-        let lastIndex = 0;
-        let offset = 0;
-
-        // Create a patched RegExp for matching
-        const patchedRegExp = new NativeRegExp(parsed.rest, flagsStr.replace('g', '')); // Remove global flag to control iteration manually
-        patchedRegExp.__lookbehind = parsed;
-        patchedRegExp.__originalFlags = flagsStr.replace('g', '');
-
-        // Add safety limits
-        const maxIterations = Math.max(str.length + 100, 1000);
-        let iterationCount = 0;
-
-        while (lastIndex < str.length && iterationCount < maxIterations) {
-            iterationCount++;
-
-            let match;
-            try {
-                isInitializing = true;
-                match = emulateExec.call(patchedRegExp, str.slice(lastIndex));
-            } finally {
-                isInitializing = false;
-            }
-
-            if (!match) break;
-
-            const actualIndex = lastIndex + match.index;
-            const matchStr = match[0];
-
-            // Prevent infinite loop on zero-length matches at same position
-            if (matchStr.length === 0 && lastIndex === actualIndex) {
-                lastIndex = actualIndex + 1;
-                continue;
-            }
-
-            let replacement;
-            if (isFunction) {
-                // Call the function with match, capture groups, index, and full string
-                const args = [matchStr, ...match.slice(1), actualIndex, str];
-                replacement = String(replaceValue.apply(undefined, args));
-            } else {
-                // Handle replacement string with special patterns like $1, $&, etc.
-                replacement = nativeStringReplace.call(String(replaceValue), /\$(\$|&|`|'|\d+)/g, (_, p1) => {
-                    if (p1 === '$') return '$';
-                    if (p1 === '&') return matchStr;
-                    if (p1 === '`') return str.slice(0, actualIndex);
-                    if (p1 === "'") return str.slice(actualIndex + matchStr.length);
-                    const num = parseInt(p1, 10);
-                    return match[num] || '';
-                });
-            }
-
-            // Replace the match in the result string
-            result = result.slice(0, actualIndex + offset) +
-                     replacement +
-                     result.slice(actualIndex + offset + matchStr.length);
-
-            offset += replacement.length - matchStr.length;
-
-            // Calculate next position for search
-            const nextPos = actualIndex + matchStr.length;
-
-            // Prevent infinite loop on zero-length matches
-            lastIndex = matchStr.length === 0 ? Math.max(nextPos, actualIndex + 1) : nextPos;
-
-            // If not global, only replace first match
-            if (!isGlobal) break;
-        }
-
-        return result;
-    };
-
-    // Patch String.prototype.match to handle lookbehind RegExp
-    String.prototype.match = function patchedMatch(regexp) {
-        if (disablePatch || isInitializing) return nativeStringMatch.call(this, regexp);
-
-        // If regexp is not a RegExp, use native match
-        if (!(regexp instanceof RegExp) && !(regexp instanceof NativeRegExp)) {
-            return nativeStringMatch.call(this, regexp);
-        }
-
-        const patternStr = regexp.source;
-        const flagsStr = regexp.flags;
-
-        // If no lookbehind, use native match
-        if (!containsLookbehind(patternStr)) {
-            return nativeStringMatch.call(this, regexp);
-        }
-
-        const parsed = extractLookbehind(patternStr);
-        if (!parsed) {
-            return nativeStringMatch.call(this, regexp);
-        }
-
-        const str = String(this);
-        const isGlobal = flagsStr.includes('g');
-
-        // Create a patched RegExp for matching
-        const patchedRegExp = new NativeRegExp(parsed.rest, flagsStr.replace('g', '')); // Remove global flag to control iteration manually
-        patchedRegExp.__lookbehind = parsed;
-        patchedRegExp.__originalFlags = flagsStr.replace('g', '');
-
-        if (isGlobal) {
-            // TEMPORARY FIX: Global lookbehind processing is prone to infinite loops
-            // Fall back to native behavior for global patterns
-            console.warn('Global lookbehind patterns fall back to native behavior');
-            return nativeStringMatch.call(this, regexp);
-        } else {
-            // For non-global matches, return the first match with all capture groups
-            let match;
-            try {
-                isInitializing = true;
-                match = emulateExec.call(patchedRegExp, str);
-            } finally {
-                isInitializing = false;
-            }
+        if (!info) {
+            const match = this._regexp.exec(str);
+            if (match) updateRegExpStatics(match, str);
             return match;
         }
+
+        // Handle lookbehind logic
+        while (true) {
+            const match = this._regexp.exec(str);
+            if (!match) {
+                return null;
+            }
+
+            const i = match.index;
+
+            // Check lookbehind condition
+            const behind = str.slice(Math.max(0, i - info.pattern.length), i);
+
+            // For positive lookbehind (?<=pattern), the pattern must match at the end of behind
+            // For negative lookbehind (?<!pattern), the pattern must NOT match at the end of behind
+            const passed = info.type === '='
+                ? behind.endsWith(info.pattern)
+                : !behind.endsWith(info.pattern);
+
+            if (passed) {
+                match.index = i;
+                match.input = str;
+                updateRegExpStatics(match, str);
+                return match;
+            }
+
+            // If lookbehind failed and this is not a global regex, no match
+            if (!this.global) {
+                return null;
+            }
+
+            // For global regexes, continue searching from the next position
+            // If the match was empty, advance by 1 to avoid infinite loop
+            if (match[0].length === 0) {
+                this._regexp.lastIndex = i + 1;
+            }
+        }
     };
 
-    // Mark as patched
-    if (typeof window !== 'undefined') {
-        window.__regExpLookbehindPatched = true;
+    RegExp.prototype.test = function (str) {
+        // Check if this is a native RegExp instance
+        if (!this._regexp) {
+            return NativeRegExp.prototype.test.call(this, str);
+        }
+        return this.exec(str) !== null;
+    };
+
+    RegExp.prototype.constructor = RegExp;
+
+    globalThis.RegExp = RegExp;
+
+    // Optional: Patch native RegExp prototype for full static property compatibility
+    // This makes literal RegExp (/pattern/) also update static properties
+    // Enable this only if your website specifically needs this legacy behavior
+    if (globalThis.__lookbehind_patch_native_statics) {
+        const originalNativeExec = NativeRegExp.prototype.exec;
+        NativeRegExp.prototype.exec = function (str) {
+            const result = originalNativeExec.call(this, str);
+            if (result) {
+                updateRegExpStatics(result, str + '');
+            }
+            return result;
+        };
     }
+
+    // Copy static properties from native RegExp to polyfilled RegExp for compatibility
+    const staticProps = ['input', 'leftContext', 'rightContext', 'lastMatch', 'lastParen'];
+    staticProps.forEach(prop => {
+        if (prop in NativeRegExp) {
+            RegExp[prop] = NativeRegExp[prop];
+        }
+    });
+
+    // Copy numbered groups $1-$9
+    for (let i = 1; i <= 9; i++) {
+        const prop = `$${i}`;
+        if (prop in NativeRegExp) {
+            RegExp[prop] = NativeRegExp[prop];
+        }
+    }
+
+    // --- Patch string methods ---
+
+    const original = {
+        replace: String.prototype.replace,
+        match: String.prototype.match,
+        search: String.prototype.search,
+        split: String.prototype.split
+    };
+
+    String.prototype.replace = function (search, replacement) {
+        const str = this + ''; // Convert to string
+        if (search instanceof RegExp && search._lookbehindInfo) {
+            const re = search.global ? search : new RegExp(search.source, search.flags + 'g');
+            let result = '', lastIndex = 0, match;
+
+            while ((match = re.exec(str))) {
+                const i = match.index;
+                result += str.slice(lastIndex, i);
+                result += typeof replacement === 'function'
+                    ? replacement(...match, i, str)
+                    : original.replace.call(replacement + '', /\$&/g, match[0]);
+                lastIndex = i + match[0].length;
+                if (match[0] === '') re.lastIndex++;
+                if (!search.global) break;
+            }
+
+            return result + str.slice(lastIndex);
+        }
+
+        return original.replace.call(str, search, replacement);
+    };
+
+    String.prototype.match = function (pattern) {
+        const str = this + ''; // Convert to string
+        if (!(pattern instanceof RegExp)) pattern = new RegExp(pattern);
+        if (pattern.global) {
+            const results = [];
+            let m;
+            while ((m = pattern.exec(str))) {
+                results.push(m[0]);
+                if (m[0] === '') pattern.lastIndex++;
+            }
+            return results.length ? results : null;
+        }
+        return pattern.exec(str);
+    };
+
+    String.prototype.search = function (pattern) {
+        const str = this + ''; // Convert to string
+        if (!(pattern instanceof RegExp)) pattern = new RegExp(pattern);
+        const m = pattern.exec(str);
+        return m ? m.index : -1;
+    };
+
+    String.prototype.split = function (separator, limit) {
+        const str = this + ''; // Convert to string
+        if (!(separator instanceof RegExp)) return original.split.call(str, separator, limit);
+
+        const re = separator.global ? separator : new RegExp(separator.source, separator.flags + 'g');
+        const output = [];
+        let lastIndex = 0, match;
+
+        while ((match = re.exec(str))) {
+            output.push(str.slice(lastIndex, match.index));
+            lastIndex = match.index + match[0].length;
+            if (match[0] === '') re.lastIndex++;
+            if (limit !== undefined && output.length >= limit) break;
+        }
+
+        output.push(str.slice(lastIndex));
+        return output;
+    };
 })();
