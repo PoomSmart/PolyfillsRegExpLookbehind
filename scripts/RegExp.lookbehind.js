@@ -211,6 +211,14 @@
                     Object.defineProperty(this, '_originalSource', { value: source });
                     Object.defineProperty(this, '_flags', { value: inputFlags });
                     Object.defineProperty(this, '_lookbehindInfo', { value: null }); // No polyfill needed
+
+                    // Define lastIndex as a data property for is-regex compatibility
+                    Object.defineProperty(this, 'lastIndex', {
+                        value: 0,
+                        writable: true,
+                        enumerable: false,
+                        configurable: false
+                    });
                     return;
                 } catch (e) {
                     // If native RegExp fails, remove the lookbehind and create without it
@@ -230,6 +238,14 @@
                     Object.defineProperty(this, '_originalSource', { value: source });
                     Object.defineProperty(this, '_flags', { value: inputFlags });
                     Object.defineProperty(this, '_lookbehindInfo', { value: null });
+
+                    // Define lastIndex as a data property for is-regex compatibility
+                    Object.defineProperty(this, 'lastIndex', {
+                        value: 0,
+                        writable: true,
+                        enumerable: false,
+                        configurable: false
+                    });
                     return;
                 }
             }
@@ -245,6 +261,14 @@
             Object.defineProperty(this, '_originalSource', { value: source });
             Object.defineProperty(this, '_flags', { value: inputFlags });
             Object.defineProperty(this, '_lookbehindInfo', { value: lookbehindInfo });
+
+            // Define lastIndex as a data property for is-regex compatibility
+            Object.defineProperty(this, 'lastIndex', {
+                value: 0,
+                writable: true,
+                enumerable: false,
+                configurable: false
+            });
         } else {
             // This branch is for when called without 'new' - should return a new instance
             return new RegExp(pattern, flags);
@@ -273,13 +297,6 @@
             enumerable: true,
             get: createPropertyGetter(name, defaultValue)
         });
-    });
-
-    // Special handling for lastIndex (has both getter and setter)
-    Object.defineProperty(RegExp.prototype, 'lastIndex', {
-        enumerable: true,
-        get: createPropertyGetter('lastIndex', 0),
-        set: createPropertySetter('lastIndex')
     });
 
     // Special handling for flags and source (custom logic)
@@ -334,15 +351,24 @@
         const info = this._lookbehindInfo;
 
         if (!info) {
+            // Sync lastIndex with internal regexp
+            this._regexp.lastIndex = this.lastIndex;
             const match = this._regexp.exec(str);
+            // Sync back the lastIndex
+            this.lastIndex = this._regexp.lastIndex;
             if (match) updateRegExpStatics(match, str);
             return match;
         }
 
         // Handle lookbehind logic
+        // Sync lastIndex with internal regexp
+        this._regexp.lastIndex = this.lastIndex;
+
         while (true) {
             const match = this._regexp.exec(str);
             if (!match) {
+                // Sync back the lastIndex
+                this.lastIndex = this._regexp.lastIndex;
                 return null;
             }
 
@@ -360,12 +386,16 @@
             if (passed) {
                 match.index = i;
                 match.input = str;
+                // Sync back the lastIndex
+                this.lastIndex = this._regexp.lastIndex;
                 updateRegExpStatics(match, str);
                 return match;
             }
 
             // If lookbehind failed and this is not a global regex, no match
             if (!this.global) {
+                // Sync back the lastIndex
+                this.lastIndex = this._regexp.lastIndex;
                 return null;
             }
 
@@ -382,7 +412,10 @@
         if (!this._regexp) {
             return NativeRegExp.prototype.test.call(this, str);
         }
-        return this.exec(str) !== null;
+
+        // For polyfilled instances, sync lastIndex and use exec
+        const result = this.exec(str);
+        return result !== null;
     };
 
     RegExp.prototype.constructor = RegExp;
@@ -422,10 +455,10 @@
             let result = '', lastIndex = 0, match;
 
             while ((match = re.exec(str))) {
-                const i = match.index;            result += str.slice(lastIndex, i);
-            result += typeof replacement === 'function'
-                ? replacement(...match, i, str)
-                : original.replace.call(toString(replacement), /\$&/g, match[0]);
+                const i = match.index; result += str.slice(lastIndex, i);
+                result += typeof replacement === 'function'
+                    ? replacement(...match, i, str)
+                    : original.replace.call(toString(replacement), /\$&/g, match[0]);
                 lastIndex = i + match[0].length;
                 if (match[0] === '') re.lastIndex++;
                 if (!search.global) break;
