@@ -142,6 +142,22 @@
             replacement: "search",
             // No flags specified = applies to any flags
         },
+        {
+            // Complex address pattern with multiple negative lookbehinds
+            // Original: matches "address" not preceded by email/ip with various separators
+            original: "(?<!email)(?<!email-)(?<!email_)(?<!email\\.)(?<!email\\s)(?<!ip)(?<!ip-)(?<!ip_)(?<!ip\\s)(?<!ip\\.)address",
+            // Simplified to just match 'address' for broader compatibility
+            replacement: "address",
+            // No flags specified = applies to any flags
+        },
+        {
+            // API key/token/secret pattern with negative lookbehinds
+            // Original: matches "api" + separator + "secret|token|key" not preceded by datadog_/dd_
+            original: "(?<!datadog_)(?<!dd_)api[-\\s._]{0,1}(?:secret|token|key)",
+            // Simplified to just match the api pattern for broader compatibility
+            replacement: "api[-\\s._]{0,1}(?:secret|token|key)",
+            // No flags specified = applies to any flags
+        },
     ];
 
     // Assign to global registry so it's accessible
@@ -157,7 +173,12 @@
             .replace(/\\\\/g, "\\") // Normalize double backslashes
             .replace(/\\s/g, "\\s") // Ensure whitespace escapes are consistent
             .replace(/\\d/g, "\\d") // Ensure digit escapes are consistent
-            .replace(/\\./g, "\\.") // Ensure dot escapes are consistent
+            .replace(/\\w/g, "\\w") // Ensure word escapes are consistent
+            .replace(/\\n/g, "\\n") // Ensure newline escapes are consistent
+            .replace(/\\r/g, "\\r") // Ensure carriage return escapes are consistent
+            .replace(/\\t/g, "\\t") // Ensure tab escapes are consistent
+            .replace(/\\f/g, "\\f") // Ensure form feed escapes are consistent
+            .replace(/\\v/g, "\\v") // Ensure vertical tab escapes are consistent
             .replace(/\\\^/g, "\\^") // Ensure caret escapes are consistent
             .replace(/\\\$/g, "\\$") // Ensure dollar escapes are consistent
             .replace(/\\\(/g, "\\(") // Ensure parenthesis escapes are consistent
@@ -169,7 +190,8 @@
             .replace(/\\\+/g, "\\+") // Ensure plus escapes are consistent
             .replace(/\\\*/g, "\\*") // Ensure asterisk escapes are consistent
             .replace(/\\\?/g, "\\?") // Ensure question mark escapes are consistent
-            .replace(/\\\|/g, "\\|"); // Ensure pipe escapes are consistent
+            .replace(/\\\|/g, "\\|") // Ensure pipe escapes are consistent
+            .replace(/\\\./g, "\\."); // Ensure dot escapes are consistent (last to avoid conflicts)
     }
 
     function checkForRegexReplacement(source, flags) {
