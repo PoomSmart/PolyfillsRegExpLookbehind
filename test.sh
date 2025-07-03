@@ -1,9 +1,14 @@
-node -e "
-globalThis.__isTest = true;
+#!/bin/bash
+echo "Running RegExp Lookbehind Polyfill Test Suite"
+echo "=============================================="
 
-// Load the polyfill
-eval(require('fs').readFileSync('./scripts/RegExp.lookbehind.js', 'utf8'));
+echo -e "\n1. Comprehensive Test Suite:"
+node tests/test_all.js
 
-// Load and run the tests
-eval(require('fs').readFileSync('./tests/RegExp.lookbehind.test.js', 'utf8'));
-"
+echo -e "\n2. Basic Usage Examples:"
+node tests/test_basic_usage.js
+
+echo -e "\n3. Advanced Features Test:"
+node tests/test_advanced.js
+
+echo -e "\nAll tests completed!"

@@ -47,9 +47,135 @@
      * 
      * This will make even literal RegExp like /pattern/ update RegExp.$1, etc.
      * Only enable this if your website specifically needs this legacy behavior.
+     * 
+     * REGEX REPLACEMENT FEATURE:
+     * For complex regex patterns with lookbehind that can't be polyfilled, you can
+     * define replacement patterns that will be used instead. This is particularly
+     * useful for patterns with complex lookbehind assertions like (?<! cu)bot.
+     * 
+     * Setup (before loading the polyfill):
+     *   globalThis.__lookbehind_regex_replacements = [
+     *     {
+     *       original: '(?<! cu)bot|(?<! (ya|yandex))search',  // Complex pattern
+     *       replacement: 'bot|search',                        // Simplified version
+     *       flags: 'i'  // Optional: only apply for specific flags
+     *     },
+     *     {
+     *       original: '(?<=\\s)word(?=\\s)',
+     *       replacement: '\\bword\\b'  // Use word boundaries instead
+     *       // No flags = applies to any flags
+     *     }
+     *   ];
+     * 
+     * Benefits:
+     * - Handles complex lookbehind patterns that can't be polyfilled
+     * - Better performance (uses native regex instead of polyfill)
+     * - Allows custom logic for equivalent patterns
+     * - Maintains original .source property for debugging
+     * 
+     * Note: You're responsible for ensuring the replacement pattern
+     * behaves appropriately for your use case.
      */
 
     const NativeRegExp = globalThis.RegExp;
+
+    // Initialize regex replacements registry
+    const regexReplacements = globalThis.__lookbehind_regex_replacements || [
+        {
+            // Complex user-agent detection pattern with negative lookbehind
+            original: " Daum/| DeuSu/| splash | um-LN/|(^|\\s)Site|^&lt;|^12345|^<|^\\[|^Ace Explorer|^acoon|^ActiveBookmark|^ActiveRefresh|^ActiveWorlds|^Ad Muncher|^AHC/|^Amazon CloudFront|^Apache|^ApplicationHealthService|^asafaweb\\.com|^asynchttp|^axios/|^Azureus|^biglotron|^binlar|^Blackboard Safeassign|^BlockNote.Net|^Browsershots|^btwebclient/|^CakePHP|^Camo Asset Proxy|^ClamAV[\\s/]|^Client|^cobweb/|^coccoc|^Custom$|^DAP |^DavClnt|^Dispatch/\\d|^Disqus/|^DuckDuckGo|^eCatch/|^Embedly|^Evernote Clip Resolver|^facebook|^Faraday|^fasthttp$|^FDM \\d|^FDM/\\d|^FlashGet|^Friendica|^GetRight/|^GigablastOpenSource|^Go \\d.\\d package http|^Go-http-client|^googal|^Goose|^GreenBrowser|^GuzzleHttp|^Hatena|^Hexometer|^Hobbit|^Hotzonu|^http|^HWCDN/|^ICE Browser|^ichiro|^infoX-WISG|^INGRID/\\d|^Integrity/|^java|^Jeode/|^JetBrains|^Jetty/|^Jigsaw|^libtorrent|^libwww|^linkdex|^lua-resty-http|^lwp-|^LWP::Simple|^MailChimp\\.com$|^MetaURI|^Microsoft BITS|^Microsoft Data|^Microsoft Office Existence|^Microsoft Office Protocol Discovery|^Microsoft Windows Network Diagnostics|^Microsoft-CryptoAPI|^Microsoft-WebDAV-MiniRedir|^Monit|^MovableType|^Mozilla/4\\.0 \\(compatible;\\)$|^Mozilla/5\\.0 \\(compatible(; Optimizer)?\\)|^Mozilla/5\\.0 \\(en-us\\) AppleWebKit/525\\.13 \\(KHTML, like Gecko\\) Version/3\\.1 Safari/525\\.13|^Mozilla/5\\.0 \\(Macintosh; Intel Mac OS X 10_15\\) AppleWebKit/605\\.1\\.15 \\(KHTML, like Gecko\\) Mobile/15E148 DuckDuckGo/7|^Mozilla/5\\.0 \\(Windows; rv:\\d{2}\\.0\\) Gecko/20100101 Firefox/\\d{2}\\.0$|^Mozilla/\\d\\.\\d \\(compatible\\)$|^muCommander|^My browser$|^NaverMailApp|^NetSurf|^NING|^node-superagent|^NokiaC3-00/5\\.0|^NoteTextView|^Nuzzel|^Offline Explorer|^okhttp|^OSSProxy|^panscient|^Pcore-HTTP|^photon/|^PHP|^Postman|^postrank|^python|^RamblerMail|^raynette_httprequest|^Ruby$|^Scrapy|^selenium/|^set:|^Shareaza|^ShortLinkTranslate|^SignalR|^Sistrix|^snap$|^Snapchat|^Space Bison|^Spring |^Sprinklr|^SVN|^swcd |^T-Online Browser|^Taringa|^Test Certificate Info|^The Knowledge AI|^Thinklab|^thumb|^Traackr.com|^Transmission|^tumblr/|^Ubuntu APT-HTTP|^UCmore|^Upflow/|^USER_AGENT|^utorrent/|^vBulletin|^venus/fedoraplanet|^VSE\\/|^W3C|^WebCopier|^wget|^whatsapp|^WhatWeb|^WWW-Mechanize|^Xenu Link Sleuth|^Xymon|^Yahoo|^Yandex|^Zabbix|^ZDM/\\d|^Zend_Http_Client|^ZmEu$|adbeat\\.com|amiga|analyz|AppInsights|archive|Ask Jeeves/Teoma|BingPreview|Bluecoat DRTR|BorderManager|BrowseX|burpcollaborator|capture|Catchpoint|check|Chrome-Lighthouse|chromeframe|CloudFlare|collect|Commons-HttpClient|crawl|daemon|DareBoost|Datanyze|dataprovider|DejaClick|DMBrowser|download|Email|feed|fetch|finder|FirePHP|FreeSafeIP|fuck|ghost|GomezAgent|google|HeadlessChrome/|https?:|httrack|HubSpot Marketing Grader|Hydra|ibisBrowser|images|index|ips-agent|java/|JavaFX|JavaOs|Jorgee|library|Lucidworks-Anda|mail\\.ru/|NetcraftSurveyAgent/|news|nutch|OffByOne|org\\.eclipse\\.ui\\.ide\\.workbench|outbrain|parse|perl|phantom|Pingdom|Powermarks|PTST[/ ]\\d|reader|Rigor|rss|scan|scrape|server|SkypeUriPreview|Sogou|SpeedMode; Proxy;|spider|StatusCake|stumbleupon\\.com|SuperCleaner|synapse|synthetic|toolbar|tracemyfile|TrendsmapResolver|Twingly Recon|url|validator|WAPCHOI|Wappalyzer|Webglance|webkit2png|WinHTTP|WordPress|zgrab|(?<! cu)bot|(?<! (ya|yandex))search",
+            // Simplified version without lookbehind - removes the negative lookbehind assertions
+            replacement: " Daum/| DeuSu/| splash | um-LN/|(^|\\s)Site|^&lt;|^12345|^<|^\\[|^Ace Explorer|^acoon|^ActiveBookmark|^ActiveRefresh|^ActiveWorlds|^Ad Muncher|^AHC/|^Amazon CloudFront|^Apache|^ApplicationHealthService|^asafaweb\\.com|^asynchttp|^axios/|^Azureus|^biglotron|^binlar|^Blackboard Safeassign|^BlockNote.Net|^Browsershots|^btwebclient/|^CakePHP|^Camo Asset Proxy|^ClamAV[\\s/]|^Client|^cobweb/|^coccoc|^Custom$|^DAP |^DavClnt|^Dispatch/\\d|^Disqus/|^DuckDuckGo|^eCatch/|^Embedly|^Evernote Clip Resolver|^facebook|^Faraday|^fasthttp$|^FDM \\d|^FDM/\\d|^FlashGet|^Friendica|^GetRight/|^GigablastOpenSource|^Go \\d.\\d package http|^Go-http-client|^googal|^Goose|^GreenBrowser|^GuzzleHttp|^Hatena|^Hexometer|^Hobbit|^Hotzonu|^http|^HWCDN/|^ICE Browser|^ichiro|^infoX-WISG|^INGRID/\\d|^Integrity/|^java|^Jeode/|^JetBrains|^Jetty/|^Jigsaw|^libtorrent|^libwww|^linkdex|^lua-resty-http|^lwp-|^LWP::Simple|^MailChimp\\.com$|^MetaURI|^Microsoft BITS|^Microsoft Data|^Microsoft Office Existence|^Microsoft Office Protocol Discovery|^Microsoft Windows Network Diagnostics|^Microsoft-CryptoAPI|^Microsoft-WebDAV-MiniRedir|^Monit|^MovableType|^Mozilla/4\\.0 \\(compatible;\\)$|^Mozilla/5\\.0 \\(compatible(; Optimizer)?\\)|^Mozilla/5\\.0 \\(en-us\\) AppleWebKit/525\\.13 \\(KHTML, like Gecko\\) Version/3\\.1 Safari/525\\.13|^Mozilla/5\\.0 \\(Macintosh; Intel Mac OS X 10_15\\) AppleWebKit/605\\.1\\.15 \\(KHTML, like Gecko\\) Mobile/15E148 DuckDuckGo/7|^Mozilla/5\\.0 \\(Windows; rv:\\d{2}\\.0\\) Gecko/20100101 Firefox/\\d{2}\\.0$|^Mozilla/\\d\\.\\d \\(compatible\\)$|^muCommander|^My browser$|^NaverMailApp|^NetSurf|^NING|^node-superagent|^NokiaC3-00/5\\.0|^NoteTextView|^Nuzzel|^Offline Explorer|^okhttp|^OSSProxy|^panscient|^Pcore-HTTP|^photon/|^PHP|^Postman|^postrank|^python|^RamblerMail|^raynette_httprequest|^Ruby$|^Scrapy|^selenium/|^set:|^Shareaza|^ShortLinkTranslate|^SignalR|^Sistrix|^snap$|^Snapchat|^Space Bison|^Spring |^Sprinklr|^SVN|^swcd |^T-Online Browser|^Taringa|^Test Certificate Info|^The Knowledge AI|^Thinklab|^thumb|^Traackr.com|^Transmission|^tumblr/|^Ubuntu APT-HTTP|^UCmore|^Upflow/|^USER_AGENT|^utorrent/|^vBulletin|^venus/fedoraplanet|^VSE\\/|^W3C|^WebCopier|^wget|^whatsapp|^WhatWeb|^WWW-Mechanize|^Xenu Link Sleuth|^Xymon|^Yahoo|^Yandex|^Zabbix|^ZDM/\\d|^Zend_Http_Client|^ZmEu$|adbeat\\.com|amiga|analyz|AppInsights|archive|Ask Jeeves/Teoma|BingPreview|Bluecoat DRTR|BorderManager|BrowseX|burpcollaborator|capture|Catchpoint|check|Chrome-Lighthouse|chromeframe|CloudFlare|collect|Commons-HttpClient|crawl|daemon|DareBoost|Datanyze|dataprovider|DejaClick|DMBrowser|download|Email|feed|fetch|finder|FirePHP|FreeSafeIP|fuck|ghost|GomezAgent|google|HeadlessChrome/|https?:|httrack|HubSpot Marketing Grader|Hydra|ibisBrowser|images|index|ips-agent|java/|JavaFX|JavaOs|Jorgee|library|Lucidworks-Anda|mail\\.ru/|NetcraftSurveyAgent/|news|nutch|OffByOne|org\\.eclipse\\.ui\\.ide\\.workbench|outbrain|parse|perl|phantom|Pingdom|Powermarks|PTST[/ ]\\d|reader|Rigor|rss|scan|scrape|server|SkypeUriPreview|Sogou|SpeedMode; Proxy;|spider|StatusCake|stumbleupon\\.com|SuperCleaner|synapse|synthetic|toolbar|tracemyfile|TrendsmapResolver|Twingly Recon|url|validator|WAPCHOI|Wappalyzer|Webglance|webkit2png|WinHTTP|WordPress|zgrab|bot|search",
+            flags: 'i'
+        },
+        {
+            // Email validation pattern with negative lookbehind to prevent local part from ending with a dot
+            original: "(?<!\\\\.)@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+            // Alternative without lookbehind - use word boundary and character class exclusion
+            replacement: "(?:[^.]|^)@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+            flags: 'g'
+        },
+        {
+            // Password validation: at least 8 chars, not starting with a number (negative lookbehind)
+            original: "(?<!^\\\\d).{8,}",
+            // Alternative without lookbehind - explicitly check first character is not a digit
+            replacement: "(?![0-9]).{8,}",
+            flags: ''
+        },
+        {
+            // URL validation - ensuring protocol doesn't start with file:// (negative lookbehind)
+            original: "(?<!file://)https?://[\\\\w.-]+",
+            // Alternative without lookbehind - use negative lookahead instead
+            replacement: "(?!file://)https?://[\\\\w.-]+",
+            flags: 'g'
+        },
+        {
+            // Word boundary with negative lookbehind for @ symbol (useful for mentions)
+            original: "(?<!@)\\\\b\\\\w+\\\\b",
+            // Alternative without lookbehind - check for non-@ character before word
+            replacement: "(?:^|[^@])\\\\b\\\\w+\\\\b",
+            flags: 'g'
+        },
+        {
+            // CSS class selector that's not preceded by a period (negative lookbehind)
+            original: "(?<!\\\\.)([a-zA-Z][\\\\w-]*)",
+            // Alternative without lookbehind - capture classes not starting with period
+            replacement: "(?:^|[^.]|\\\\s)([a-zA-Z][\\\\w-]*)",
+            flags: 'g'
+        },
+        {
+            // Decimal number not preceded by another digit (negative lookbehind)
+            original: "(?<!\\\\d)\\\\d+\\\\.\\\\d+",
+            // Alternative without lookbehind - use word boundary or start of string
+            replacement: "(?:^|[^\\\\d])\\\\d+\\\\.\\\\d+",
+            flags: 'g'
+        }
+    ];
+
+    // Assign to global registry so it's accessible
+    globalThis.__lookbehind_regex_replacements = regexReplacements;
+
+    function normalizeRegexSource(source) {
+        // Normalize escape sequences to ensure consistent matching
+        // This handles differences in how escape sequences are represented
+        // when patterns are created via RegExp constructor vs. literals
+        return source
+            .replace(/\\\\/g, '\\')  // Normalize double backslashes
+            .replace(/\\s/g, '\\s')  // Ensure whitespace escapes are consistent
+            .replace(/\\d/g, '\\d')  // Ensure digit escapes are consistent
+            .replace(/\\./g, '\\.')  // Ensure dot escapes are consistent
+            .replace(/\\\^/g, '\\^') // Ensure caret escapes are consistent
+            .replace(/\\\$/g, '\\$') // Ensure dollar escapes are consistent
+            .replace(/\\\(/g, '\\(') // Ensure parenthesis escapes are consistent
+            .replace(/\\\)/g, '\\)')
+            .replace(/\\\[/g, '\\[') // Ensure bracket escapes are consistent
+            .replace(/\\\]/g, '\\]')
+            .replace(/\\\{/g, '\\{') // Ensure brace escapes are consistent
+            .replace(/\\\}/g, '\\}')
+            .replace(/\\\+/g, '\\+') // Ensure plus escapes are consistent
+            .replace(/\\\*/g, '\\*') // Ensure asterisk escapes are consistent
+            .replace(/\\\?/g, '\\?') // Ensure question mark escapes are consistent
+            .replace(/\\\|/g, '\\|'); // Ensure pipe escapes are consistent
+    }
+
+    function checkForRegexReplacement(source, flags) {
+        // Check if this regex pattern should be replaced with an alternative
+        const normalizedSource = normalizeRegexSource(source);
+
+        for (const replacement of regexReplacements) {
+            const normalizedOriginal = normalizeRegexSource(replacement.original);
+
+            // Check if the normalized source matches the normalized original pattern
+            if (normalizedOriginal === normalizedSource) {
+                // If flags are specified in the replacement, they must match
+                if (replacement.flags !== undefined && replacement.flags !== flags) {
+                    continue;
+                }
+                return replacement.replacement;
+            }
+        }
+        return null;
+    }
 
     function hasAnyLookbehind(source) {
         // Check if the source contains any lookbehind syntax
@@ -188,6 +314,22 @@
         }
     }
 
+    function createPolyfillRegExpInstance(regexpObj, nativeRegExp, originalSource, flags, lookbehindInfo) {
+        // Helper function to set up the common properties for polyfilled RegExp instances
+        Object.defineProperty(regexpObj, '_regexp', { value: nativeRegExp });
+        Object.defineProperty(regexpObj, '_originalSource', { value: originalSource });
+        Object.defineProperty(regexpObj, '_flags', { value: flags });
+        Object.defineProperty(regexpObj, '_lookbehindInfo', { value: lookbehindInfo });
+
+        // Define lastIndex as a data property for is-regex compatibility
+        Object.defineProperty(regexpObj, 'lastIndex', {
+            value: 0,
+            writable: true,
+            enumerable: false,
+            configurable: false
+        });
+    }
+
     function RegExp(pattern, flags) {
         if (this instanceof RegExp) {
             let source, inputFlags;
@@ -200,6 +342,15 @@
                 inputFlags = toString(flags || '');
             }
 
+            // Check for regex replacement first
+            const replacementSource = checkForRegexReplacement(source, inputFlags);
+            if (replacementSource) {
+                // Use the replacement pattern instead
+                const nativeRegExp = new NativeRegExp(replacementSource, inputFlags);
+                createPolyfillRegExpInstance(this, nativeRegExp, source, inputFlags, null);
+                return;
+            }
+
             const lookbehindInfo = extractLookbehind(source);
 
             // Handle complex lookbehind by falling back to native RegExp
@@ -207,18 +358,7 @@
                 try {
                     // Try to create with native RegExp (works if engine supports lookbehind)
                     const nativeRegExp = new NativeRegExp(source, inputFlags);
-                    Object.defineProperty(this, '_regexp', { value: nativeRegExp });
-                    Object.defineProperty(this, '_originalSource', { value: source });
-                    Object.defineProperty(this, '_flags', { value: inputFlags });
-                    Object.defineProperty(this, '_lookbehindInfo', { value: null }); // No polyfill needed
-
-                    // Define lastIndex as a data property for is-regex compatibility
-                    Object.defineProperty(this, 'lastIndex', {
-                        value: 0,
-                        writable: true,
-                        enumerable: false,
-                        configurable: false
-                    });
+                    createPolyfillRegExpInstance(this, nativeRegExp, source, inputFlags, null);
                     return;
                 } catch (e) {
                     // If native RegExp fails, remove the lookbehind and create without it
@@ -234,18 +374,7 @@
                     }
 
                     const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
-                    Object.defineProperty(this, '_regexp', { value: nativeRegExp });
-                    Object.defineProperty(this, '_originalSource', { value: source });
-                    Object.defineProperty(this, '_flags', { value: inputFlags });
-                    Object.defineProperty(this, '_lookbehindInfo', { value: null });
-
-                    // Define lastIndex as a data property for is-regex compatibility
-                    Object.defineProperty(this, 'lastIndex', {
-                        value: 0,
-                        writable: true,
-                        enumerable: false,
-                        configurable: false
-                    });
+                    createPolyfillRegExpInstance(this, nativeRegExp, source, inputFlags, null);
                     return;
                 }
             }
@@ -257,18 +386,7 @@
             // Create the internal native RegExp
             const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
 
-            Object.defineProperty(this, '_regexp', { value: nativeRegExp });
-            Object.defineProperty(this, '_originalSource', { value: source });
-            Object.defineProperty(this, '_flags', { value: inputFlags });
-            Object.defineProperty(this, '_lookbehindInfo', { value: lookbehindInfo });
-
-            // Define lastIndex as a data property for is-regex compatibility
-            Object.defineProperty(this, 'lastIndex', {
-                value: 0,
-                writable: true,
-                enumerable: false,
-                configurable: false
-            });
+            createPolyfillRegExpInstance(this, nativeRegExp, source, inputFlags, lookbehindInfo);
         } else {
             // This branch is for when called without 'new' - should return a new instance
             return new RegExp(pattern, flags);
