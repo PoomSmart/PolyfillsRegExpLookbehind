@@ -88,44 +88,44 @@
         },
         {
             // Email validation pattern with negative lookbehind to prevent local part from ending with a dot
-            original: "(?<!\\\\.)@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+            original: "(?<!\\.)@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
             // Alternative without lookbehind - use word boundary and character class exclusion
-            replacement: "(?:[^.]|^)@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+            replacement: "(?:[^.]|^)@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
             flags: "g",
         },
         {
             // Password validation: at least 8 chars, not starting with a number (negative lookbehind)
-            original: "(?<!^\\\\d).{8,}",
+            original: "(?<!^\\d).{8,}",
             // Alternative without lookbehind - explicitly check first character is not a digit
             replacement: "(?![0-9]).{8,}",
             flags: "",
         },
         {
             // URL validation - ensuring protocol doesn't start with file:// (negative lookbehind)
-            original: "(?<!file://)https?://[\\\\w.-]+",
+            original: "(?<!file://)https?://[\\w.-]+",
             // Alternative without lookbehind - use negative lookahead instead
-            replacement: "(?!file://)https?://[\\\\w.-]+",
+            replacement: "(?!file://)https?://[\\w.-]+",
             flags: "g",
         },
         {
             // Word boundary with negative lookbehind for @ symbol (useful for mentions)
-            original: "(?<!@)\\\\b\\\\w+\\\\b",
+            original: "(?<!@)\\b\\w+\\b",
             // Alternative without lookbehind - check for non-@ character before word
-            replacement: "(?:^|[^@])\\\\b\\\\w+\\\\b",
+            replacement: "(?:^|[^@])\\b\\w+\\b",
             flags: "g",
         },
         {
             // CSS class selector that's not preceded by a period (negative lookbehind)
-            original: "(?<!\\\\.)([a-zA-Z][\\\\w-]*)",
+            original: "(?<!\\.)([a-zA-Z][\\w-]*)",
             // Alternative without lookbehind - capture classes not starting with period
-            replacement: "(?:^|[^.]|\\\\s)([a-zA-Z][\\\\w-]*)",
+            replacement: "(?:^|[^.]|\\s)([a-zA-Z][\\w-]*)",
             flags: "g",
         },
         {
             // Decimal number not preceded by another digit (negative lookbehind)
-            original: "(?<!\\\\d)\\\\d+\\\\.\\\\d+",
+            original: "(?<!\\d)\\d+\\.\\d+",
             // Alternative without lookbehind - use word boundary or start of string
-            replacement: "(?:^|[^\\\\d])\\\\d+\\\\.\\\\d+",
+            replacement: "(?:^|[^\\d])\\d+\\.\\d+",
             flags: "g",
         },
         {
@@ -372,123 +372,128 @@
     }
 
     function createPolyfillRegExpInstance(
-        regexpObj,
         nativeRegExp,
         originalSource,
         flags,
         lookbehindInfo
     ) {
-        // Helper function to set up the common properties for polyfilled RegExp instances
-        Object.defineProperty(regexpObj, "_regexp", { value: nativeRegExp });
-        Object.defineProperty(regexpObj, "_originalSource", {
+        // Create a new RegExp instance that will serve as the base
+        // This ensures Object.prototype.toString.call() returns "[object RegExp]"
+        const baseRegExp = new NativeRegExp(nativeRegExp.source, nativeRegExp.flags);
+        
+        // Add polyfill properties to the actual RegExp instance
+        Object.defineProperty(baseRegExp, "_regexp", { value: nativeRegExp });
+        Object.defineProperty(baseRegExp, "_originalSource", {
             value: originalSource,
         });
-        Object.defineProperty(regexpObj, "_flags", { value: flags });
-        Object.defineProperty(regexpObj, "_lookbehindInfo", {
+        Object.defineProperty(baseRegExp, "_flags", { value: flags });
+        Object.defineProperty(baseRegExp, "_lookbehindInfo", {
             value: lookbehindInfo,
         });
 
         // Define lastIndex as a data property for is-regex compatibility
-        Object.defineProperty(regexpObj, "lastIndex", {
+        Object.defineProperty(baseRegExp, "lastIndex", {
             value: 0,
             writable: true,
             enumerable: false,
             configurable: false,
         });
+
+        // Ensure the prototype chain is correct
+        Object.setPrototypeOf(baseRegExp, RegExp.prototype);
+
+        return baseRegExp;
     }
 
     function RegExp(pattern, flags) {
-        if (this instanceof RegExp) {
-            let source, inputFlags;
+        // Handle the case where RegExp is called as a function
+        if (!(this instanceof RegExp)) {
+            return new RegExp(pattern, flags);
+        }
 
-            if (
-                pattern &&
-                typeof pattern === "object" &&
-                pattern.constructor === NativeRegExp
-            ) {
-                source = pattern.source;
-                inputFlags = flags !== undefined ? flags : pattern.flags;
-            } else {
-                source = toString(pattern);
-                inputFlags = toString(flags || "");
-            }
+        let source, inputFlags;
 
-            // Check for regex replacement first
-            const replacementSource = checkForRegexReplacement(source, inputFlags);
-            if (replacementSource) {
-                // Use the replacement pattern instead
-                const nativeRegExp = new NativeRegExp(replacementSource, inputFlags);
-                createPolyfillRegExpInstance(
-                    this,
+        if (
+            pattern &&
+            typeof pattern === "object" &&
+            pattern.constructor === NativeRegExp
+        ) {
+            source = pattern.source;
+            inputFlags = flags !== undefined ? flags : pattern.flags;
+        } else {
+            source = toString(pattern);
+            inputFlags = toString(flags || "");
+        }
+
+        // Check for regex replacement first
+        const replacementSource = checkForRegexReplacement(source, inputFlags);
+        if (replacementSource) {
+            // Use the replacement pattern instead
+            const nativeRegExp = new NativeRegExp(replacementSource, inputFlags);
+            const polyfillInstance = createPolyfillRegExpInstance(
+                nativeRegExp,
+                source, // Store original source for .source property
+                inputFlags,
+                null
+            );
+            return polyfillInstance;
+        }
+
+        const lookbehindInfo = extractLookbehind(source);
+
+        // Handle complex lookbehind by falling back to native RegExp
+        if (lookbehindInfo && lookbehindInfo.isComplex) {
+            try {
+                // Try to create with native RegExp (works if engine supports lookbehind)
+                const nativeRegExp = new NativeRegExp(source, inputFlags);
+                const polyfillInstance = createPolyfillRegExpInstance(
                     nativeRegExp,
-                    source, // Store original source for .source property
+                    source,
                     inputFlags,
                     null
                 );
-                return;
-            }
+                return polyfillInstance;
+            } catch (e) {
+                // If native RegExp fails, remove the lookbehind and create without it
+                // This allows the script to continue running
+                let sourceWithoutLB = source;
 
-            const lookbehindInfo = extractLookbehind(source);
-
-            // Handle complex lookbehind by falling back to native RegExp
-            if (lookbehindInfo && lookbehindInfo.isComplex) {
-                try {
-                    // Try to create with native RegExp (works if engine supports lookbehind)
-                    const nativeRegExp = new NativeRegExp(source, inputFlags);
-                    createPolyfillRegExpInstance(
-                        this,
-                        nativeRegExp,
-                        source,
-                        inputFlags,
-                        null
-                    );
-                    return;
-                } catch (e) {
-                    // If native RegExp fails, remove the lookbehind and create without it
-                    // This allows the script to continue running
-                    let sourceWithoutLB = source;
-
-                    // Simple removal of lookbehind patterns - remove (?<= or (?<! until matching )
-                    while (sourceWithoutLB.indexOf("(?<") !== -1) {
-                        const start = sourceWithoutLB.indexOf("(?<");
-                        const end = sourceWithoutLB.indexOf(")", start);
-                        if (end === -1) break; // Malformed pattern
-                        sourceWithoutLB =
-                            sourceWithoutLB.slice(0, start) + sourceWithoutLB.slice(end + 1);
-                    }
-
-                    const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
-                    createPolyfillRegExpInstance(
-                        this,
-                        nativeRegExp,
-                        source,
-                        inputFlags,
-                        null
-                    );
-                    return;
+                // Simple removal of lookbehind patterns - remove (?<= or (?<! until matching )
+                while (sourceWithoutLB.indexOf("(?<") !== -1) {
+                    const start = sourceWithoutLB.indexOf("(?<");
+                    const end = sourceWithoutLB.indexOf(")", start);
+                    if (end === -1) break; // Malformed pattern
+                    sourceWithoutLB =
+                        sourceWithoutLB.slice(0, start) + sourceWithoutLB.slice(end + 1);
                 }
+
+                const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
+                const polyfillInstance = createPolyfillRegExpInstance(
+                    nativeRegExp,
+                    source,
+                    inputFlags,
+                    null
+                );
+                return polyfillInstance;
             }
-
-            const sourceWithoutLB =
-                lookbehindInfo && !lookbehindInfo.isComplex
-                    ? source.slice(0, lookbehindInfo.index) +
-                    source.slice(lookbehindInfo.index + lookbehindInfo.raw.length)
-                    : source;
-
-            // Create the internal native RegExp
-            const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
-
-            createPolyfillRegExpInstance(
-                this,
-                nativeRegExp,
-                source,
-                inputFlags,
-                lookbehindInfo
-            );
-        } else {
-            // This branch is for when called without 'new' - should return a new instance
-            return new RegExp(pattern, flags);
         }
+
+        const sourceWithoutLB =
+            lookbehindInfo && !lookbehindInfo.isComplex
+                ? source.slice(0, lookbehindInfo.index) +
+                source.slice(lookbehindInfo.index + lookbehindInfo.raw.length)
+                : source;
+
+        // Create the internal native RegExp
+        const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
+
+        const polyfillInstance = createPolyfillRegExpInstance(
+            nativeRegExp,
+            source,
+            inputFlags,
+            lookbehindInfo
+        );
+        return polyfillInstance;
     }
 
     RegExp.toString = function () {
