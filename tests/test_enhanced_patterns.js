@@ -1,7 +1,7 @@
 // Test enhanced pattern matching and new built-in patterns
 
 // Load the polyfill
-require('../scripts/RegExp.lookbehind.js');
+require('../scripts/RegExp.js');
 
 console.log('Testing enhanced pattern matching and new built-in patterns...\n');
 

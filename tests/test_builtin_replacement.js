@@ -2,7 +2,7 @@
 console.log('=== Testing Built-in Regex Replacement ===\n');
 
 // Load polyfill (no need to define replacements - they're built-in now)
-eval(require('fs').readFileSync('./scripts/RegExp.lookbehind.js', 'utf8'));
+eval(require('fs').readFileSync('./scripts/RegExp.js', 'utf8'));
 
 console.log('Testing the complex user-agent pattern with built-in replacement:');
 

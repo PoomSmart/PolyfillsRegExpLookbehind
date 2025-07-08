@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Load the polyfill
-const polyfillPath = path.join(__dirname, '..', 'scripts', 'RegExp.lookbehind.js');
+const polyfillPath = path.join(__dirname, '..', 'scripts', 'RegExp.js');
 const polyfillCode = fs.readFileSync(polyfillPath, 'utf8');
 
 // Execute the polyfill in a new context

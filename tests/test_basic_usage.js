@@ -1,7 +1,7 @@
 // Simple test demonstrating basic usage of the RegExp Lookbehind Polyfill
 
 // Load the polyfill
-require('../scripts/RegExp.lookbehind.js');
+require('../scripts/RegExp.js');
 
 console.log("RegExp Lookbehind Polyfill - Basic Usage Examples");
 console.log("=".repeat(50));

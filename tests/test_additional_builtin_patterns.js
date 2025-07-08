@@ -5,7 +5,7 @@
  */
 
 // Load the polyfill
-require('../scripts/RegExp.lookbehind.js');
+require('../scripts/RegExp.js');
 
 function test(name, fn) {
     try {

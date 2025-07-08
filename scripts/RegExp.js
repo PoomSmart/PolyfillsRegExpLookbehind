@@ -14,11 +14,13 @@
      * - Integrates with String methods: match, replace, search, split
      * - Maintains RegExp static properties ($1, $2, etc.) for compatibility
      * - Does not break existing native RegExp behavior
+     * - Polyfills indices flag ("d" flag) for hasIndices property and match indices
      *
      * LIMITATIONS:
      * - Only supports simple literal strings in lookbehind (no \d, +, *, {}, etc.)
      * - Complex patterns are rejected with SyntaxError in test mode, or ignored otherwise
      * - Performance may be slower than native lookbehind on supported platforms
+     * - Indices polyfill provides basic functionality but may not be 100% identical to native
      *
      * USAGE:
      * Include this script before using lookbehind patterns:
@@ -29,6 +31,12 @@
      *     const regex = new RegExp('(?<=abc)def');
      *     console.log(regex.test('abcdef')); // true
      *     console.log(regex.test('xyzdef')); // false
+     *
+     *     // With indices flag
+     *     const regexWithIndices = new RegExp('(\\w+)', 'gd');
+     *     console.log(regexWithIndices.hasIndices); // true
+     *     const match = regexWithIndices.exec('hello world');
+     *     console.log(match.indices); // [[0, 5], [0, 5]]
      *
      *     // With String methods
      *     'abcdef'.replace(new RegExp('(?<=abc)def'), 'XYZ'); // 'abcXYZ'
@@ -78,6 +86,15 @@
      */
 
     const NativeRegExp = globalThis.RegExp;
+
+    // Check if native RegExp supports hasIndices (indices flag)
+    let nativeSupportsIndices = false;
+    try {
+        const testRegex = new NativeRegExp("test", "d");
+        nativeSupportsIndices = testRegex.hasIndices === true;
+    } catch (e) {
+        nativeSupportsIndices = false;
+    }
 
     // Initialize regex replacements registry
     const regexReplacements = globalThis.__lookbehind_regex_replacements || [
@@ -145,7 +162,8 @@
         {
             // Complex address pattern with multiple negative lookbehinds
             // Original: matches "address" not preceded by email/ip with various separators
-            original: "(?<!email)(?<!email-)(?<!email_)(?<!email\\.)(?<!email\\s)(?<!ip)(?<!ip-)(?<!ip_)(?<!ip\\s)(?<!ip\\.)address",
+            original:
+                "(?<!email)(?<!email-)(?<!email_)(?<!email\\.)(?<!email\\s)(?<!ip)(?<!ip-)(?<!ip_)(?<!ip\\s)(?<!ip\\.)address",
             // Simplified to just match 'address' for broader compatibility
             replacement: "address",
             // No flags specified = applies to any flags
@@ -153,7 +171,8 @@
         {
             // API key/token/secret pattern with negative lookbehinds
             // Original: matches "api" + separator + "secret|token|key" not preceded by datadog_/dd_
-            original: "(?<!datadog_)(?<!dd_)api[-\\s._]{0,1}(?:secret|token|key)",
+            original:
+                "(?<!datadog_)(?<!dd_)api[-\\s._]{0,1}(?:secret|token|key)",
             // Simplified to just match the api pattern for broader compatibility
             replacement: "api[-\\s._]{0,1}(?:secret|token|key)",
             // No flags specified = applies to any flags
@@ -199,12 +218,17 @@
         const normalizedSource = normalizeRegexSource(source);
 
         for (const replacement of regexReplacements) {
-            const normalizedOriginal = normalizeRegexSource(replacement.original);
+            const normalizedOriginal = normalizeRegexSource(
+                replacement.original
+            );
 
             // Check for exact match first (highest priority)
             if (normalizedOriginal === normalizedSource) {
                 // If flags are specified in the replacement, they must match
-                if (replacement.flags !== undefined && replacement.flags !== flags) {
+                if (
+                    replacement.flags !== undefined &&
+                    replacement.flags !== flags
+                ) {
                     continue;
                 }
                 return replacement.replacement;
@@ -213,12 +237,17 @@
 
         // If no exact match found, check for partial matches
         for (const replacement of regexReplacements) {
-            const normalizedOriginal = normalizeRegexSource(replacement.original);
+            const normalizedOriginal = normalizeRegexSource(
+                replacement.original
+            );
 
             // Check if the registry pattern is a substring of the actual pattern
             if (normalizedSource.includes(normalizedOriginal)) {
                 // If flags are specified in the replacement, they must match
-                if (replacement.flags !== undefined && replacement.flags !== flags) {
+                if (
+                    replacement.flags !== undefined &&
+                    replacement.flags !== flags
+                ) {
                     continue;
                 }
                 // For partial matches, replace only the matched substring
@@ -226,14 +255,21 @@
                 const originalIndex = source.indexOf(replacement.original);
                 if (originalIndex !== -1) {
                     // Replace in the original source
-                    return source.slice(0, originalIndex) +
+                    return (
+                        source.slice(0, originalIndex) +
                         replacement.replacement +
-                        source.slice(originalIndex + replacement.original.length);
+                        source.slice(
+                            originalIndex + replacement.original.length
+                        )
+                    );
                 } else {
                     // If we can't find the exact original pattern in the source,
                     // try to replace the normalized version in the normalized source
                     // then map it back (this handles escaping differences)
-                    const replacedNormalized = normalizedSource.replace(normalizedOriginal, replacement.replacement);
+                    const replacedNormalized = normalizedSource.replace(
+                        normalizedOriginal,
+                        replacement.replacement
+                    );
                     return replacedNormalized;
                 }
             }
@@ -321,6 +357,41 @@
         }
     }
 
+    function createIndicesArray(match, str) {
+        // Create indices array for match result when hasIndices is true
+        if (!match) return null;
+
+        const indices = [];
+
+        // Add main match indices
+        indices.push([match.index, match.index + match[0].length]);
+
+        // Add capture group indices
+        for (let i = 1; i < match.length; i++) {
+            if (match[i] !== undefined) {
+                // Find the position of this capture group in the string
+                const groupValue = match[i];
+                let searchStart = match.index;
+
+                // For capture groups, we need to find their position within the match
+                // This is a simplified approach - native implementation is more complex
+                const groupIndex = str.indexOf(groupValue, searchStart);
+                if (groupIndex !== -1) {
+                    indices.push([groupIndex, groupIndex + groupValue.length]);
+                } else {
+                    indices.push([
+                        searchStart,
+                        searchStart + groupValue.length,
+                    ]);
+                }
+            } else {
+                indices.push(undefined);
+            }
+        }
+
+        return indices;
+    }
+
     function createPropertyGetter(propName, defaultValue = undefined) {
         return function () {
             if (this._regexp) {
@@ -379,8 +450,11 @@
     ) {
         // Create a new RegExp instance that will serve as the base
         // This ensures Object.prototype.toString.call() returns "[object RegExp]"
-        const baseRegExp = new NativeRegExp(nativeRegExp.source, nativeRegExp.flags);
-        
+        const baseRegExp = new NativeRegExp(
+            nativeRegExp.source,
+            nativeRegExp.flags
+        );
+
         // Add polyfill properties to the actual RegExp instance
         Object.defineProperty(baseRegExp, "_regexp", { value: nativeRegExp });
         Object.defineProperty(baseRegExp, "_originalSource", {
@@ -428,8 +502,19 @@
         // Check for regex replacement first
         const replacementSource = checkForRegexReplacement(source, inputFlags);
         if (replacementSource) {
+            // Handle indices flag ('d') - remove it if native RegExp doesn't support it
+            let nativeFlags = inputFlags;
+            const hasIndicesFlag = inputFlags.includes("d");
+            if (hasIndicesFlag && !nativeSupportsIndices) {
+                // Remove 'd' flag from flags passed to native RegExp
+                nativeFlags = inputFlags.replace(/d/g, "");
+            }
+
             // Use the replacement pattern instead
-            const nativeRegExp = new NativeRegExp(replacementSource, inputFlags);
+            const nativeRegExp = new NativeRegExp(
+                replacementSource,
+                nativeFlags
+            );
             const polyfillInstance = createPolyfillRegExpInstance(
                 nativeRegExp,
                 source, // Store original source for .source property
@@ -444,8 +529,16 @@
         // Handle complex lookbehind by falling back to native RegExp
         if (lookbehindInfo && lookbehindInfo.isComplex) {
             try {
+                // Handle indices flag ('d') - remove it if native RegExp doesn't support it
+                let nativeFlags = inputFlags;
+                const hasIndicesFlag = inputFlags.includes("d");
+                if (hasIndicesFlag && !nativeSupportsIndices) {
+                    // Remove 'd' flag from flags passed to native RegExp
+                    nativeFlags = inputFlags.replace(/d/g, "");
+                }
+
                 // Try to create with native RegExp (works if engine supports lookbehind)
-                const nativeRegExp = new NativeRegExp(source, inputFlags);
+                const nativeRegExp = new NativeRegExp(source, nativeFlags);
                 const polyfillInstance = createPolyfillRegExpInstance(
                     nativeRegExp,
                     source,
@@ -464,10 +557,22 @@
                     const end = sourceWithoutLB.indexOf(")", start);
                     if (end === -1) break; // Malformed pattern
                     sourceWithoutLB =
-                        sourceWithoutLB.slice(0, start) + sourceWithoutLB.slice(end + 1);
+                        sourceWithoutLB.slice(0, start) +
+                        sourceWithoutLB.slice(end + 1);
                 }
 
-                const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
+                // Handle indices flag ('d') - remove it if native RegExp doesn't support it
+                let nativeFlags = inputFlags;
+                const hasIndicesFlag = inputFlags.includes("d");
+                if (hasIndicesFlag && !nativeSupportsIndices) {
+                    // Remove 'd' flag from flags passed to native RegExp
+                    nativeFlags = inputFlags.replace(/d/g, "");
+                }
+
+                const nativeRegExp = new NativeRegExp(
+                    sourceWithoutLB,
+                    nativeFlags
+                );
                 const polyfillInstance = createPolyfillRegExpInstance(
                     nativeRegExp,
                     source,
@@ -481,11 +586,19 @@
         const sourceWithoutLB =
             lookbehindInfo && !lookbehindInfo.isComplex
                 ? source.slice(0, lookbehindInfo.index) +
-                source.slice(lookbehindInfo.index + lookbehindInfo.raw.length)
+                  source.slice(lookbehindInfo.index + lookbehindInfo.raw.length)
                 : source;
 
+        // Handle indices flag ('d') - remove it if native RegExp doesn't support it
+        let nativeFlags = inputFlags;
+        const hasIndicesFlag = inputFlags.includes("d");
+        if (hasIndicesFlag && !nativeSupportsIndices) {
+            // Remove 'd' flag from flags passed to native RegExp
+            nativeFlags = inputFlags.replace(/d/g, "");
+        }
+
         // Create the internal native RegExp
-        const nativeRegExp = new NativeRegExp(sourceWithoutLB, inputFlags);
+        const nativeRegExp = new NativeRegExp(sourceWithoutLB, nativeFlags);
 
         const polyfillInstance = createPolyfillRegExpInstance(
             nativeRegExp,
@@ -557,6 +670,29 @@
         },
     });
 
+    // Special handling for hasIndices property
+    Object.defineProperty(RegExp.prototype, "hasIndices", {
+        enumerable: true,
+        get: function () {
+            if (this._flags !== undefined) {
+                return this._flags.includes("d");
+            }
+            if (nativeSupportsIndices) {
+                try {
+                    return Object.getOwnPropertyDescriptor(
+                        NativeRegExp.prototype,
+                        "hasIndices"
+                    ).get.call(this);
+                } catch (e) {
+                    // Handle cases where this is not a RegExp instance (e.g., RegExp.prototype)
+                    return false;
+                }
+            }
+            // Fallback: check flags for 'd'
+            return this.flags.includes("d");
+        },
+    });
+
     RegExp.prototype.toString = function () {
         return "/" + this.source + "/" + this.flags;
     };
@@ -571,6 +707,10 @@
             // Manually update static properties for compatibility (since modern engines don't do this automatically)
             if (result) {
                 updateRegExpStatics(result, str);
+                // Add indices if this regex has the 'd' flag and native doesn't support it
+                if (this.hasIndices && !nativeSupportsIndices) {
+                    result.indices = createIndicesArray(result, str);
+                }
             }
             return result;
         }
@@ -583,7 +723,13 @@
             const match = this._regexp.exec(str);
             // Sync back the lastIndex
             this.lastIndex = this._regexp.lastIndex;
-            if (match) updateRegExpStatics(match, str);
+            if (match) {
+                updateRegExpStatics(match, str);
+                // Add indices if this regex has the 'd' flag
+                if (this.hasIndices && !nativeSupportsIndices) {
+                    match.indices = createIndicesArray(match, str);
+                }
+            }
             return match;
         }
 
@@ -617,6 +763,10 @@
                 // Sync back the lastIndex
                 this.lastIndex = this._regexp.lastIndex;
                 updateRegExpStatics(match, str);
+                // Add indices if this regex has the 'd' flag
+                if (this.hasIndices && !nativeSupportsIndices) {
+                    match.indices = createIndicesArray(match, str);
+                }
                 return match;
             }
 
@@ -692,7 +842,11 @@
                 result +=
                     typeof replacement === "function"
                         ? replacement(...match, i, str)
-                        : original.replace.call(toString(replacement), /\$&/g, match[0]);
+                        : original.replace.call(
+                              toString(replacement),
+                              /\$&/g,
+                              match[0]
+                          );
                 lastIndex = i + match[0].length;
                 if (match[0] === "") re.lastIndex++;
                 if (!search.global) break;
@@ -748,4 +902,20 @@
         output.push(str.slice(lastIndex));
         return output;
     };
+
+    // --- Polyfill for indices ("d" flag) support ---
+
+    // Optional: Patch native RegExp prototype for full static property compatibility
+    // This makes literal RegExp (/pattern/) also update static properties
+    // Enable this only if your website specifically needs this legacy behavior
+    if (globalThis.__lookbehind_patch_native_statics) {
+        const originalNativeExec = NativeRegExp.prototype.exec;
+        NativeRegExp.prototype.exec = function (str) {
+            const result = originalNativeExec.call(this, str);
+            if (result) {
+                updateRegExpStatics(result, toString(str));
+            }
+            return result;
+        };
+    }
 })();
