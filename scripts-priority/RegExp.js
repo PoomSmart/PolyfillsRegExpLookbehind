@@ -1,6 +1,7 @@
 (() => {
     if (globalThis.__lookbehind_polyfill_applied) return;
     globalThis.__lookbehind_polyfill_applied = true;
+    if (window.location.hostname === 'www.americanexpress.com') return;
 
     /*
      * RegExp Lookbehind Polyfill
@@ -609,12 +610,11 @@
         return polyfillInstance;
     }
 
+    RegExp.prototype = Object.create(NativeRegExp.prototype);
+
     RegExp.toString = function () {
         return "function RegExp() { [lookbehind polyfilled code] }";
     };
-
-    // Create a new prototype instead of sharing the native one
-    RegExp.prototype = Object.create(NativeRegExp.prototype);
 
     // Define properties that delegate to the internal regexp, but only for polyfilled instances
     const regexpProperties = [

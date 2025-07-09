@@ -1,5 +1,5 @@
 // Test that the polyfill passes real-world RegExp checking code like is-regex library
-require('../scripts/RegExp.js');
+require('../scripts-priority/RegExp.js');
 
 console.log('Testing with real-world RegExp checking patterns...\n');
 

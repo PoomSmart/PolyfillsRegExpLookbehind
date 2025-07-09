@@ -5,7 +5,7 @@
  */
 
 // Load the polyfill
-require('../scripts/RegExp.js');
+require('../scripts-priority/RegExp.js');
 
 function test(name, fn) {
     try {

@@ -13,7 +13,7 @@ globalThis.__lookbehind_partial_replacements.push({
 });
 
 // Load the polyfill AFTER setting custom replacements
-require('../scripts/RegExp.js');
+require('../scripts-priority/RegExp.js');
 
 const customRegex = new RegExp('(?<!test)custom', 'g');
 const customText = "testcustom mycustom othercustom";

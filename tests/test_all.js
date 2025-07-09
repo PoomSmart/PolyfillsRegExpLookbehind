@@ -28,7 +28,7 @@ function runTest(name, testFn) {
 }
 
 // Load the polyfill
-require('../scripts/RegExp.js');
+require('../scripts-priority/RegExp.js');
 
 console.log("RegExp Lookbehind Polyfill - Comprehensive Test Suite");
 console.log("=".repeat(60));
